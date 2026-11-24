@@ -129,7 +129,7 @@ class MainActivity : Activity() {
         addChoice("Resolução", "resolution", arrayOf("720p","1080p","1440p","Automática"), "Automática")
         addChoice("Fonte de áudio", "audio", arrayOf("Nenhuma","Microfone","Sistema","Ambos"), "Nenhuma")
         root.addView(TextView(this).apply {
-            text = "Nota: por enquanto só "Sistema" e "Nenhuma" funcionam. Alguns jogos/apps podem bloquear a captura do áudio do sistema.\nAs configurações são aplicadas à próxima gravação."
+            text = "Nota: por enquanto só Sistema e Nenhuma funcionam. Alguns jogos/apps podem bloquear a captura do áudio do sistema.\nAs configurações são aplicadas à próxima gravação."
             setTextColor(Color.LTGRAY); textSize = 13f; setPadding(4, 18, 4, 18)
         })
         root.addView(button("Voltar") { showHome() })
