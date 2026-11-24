@@ -172,10 +172,10 @@ class RecorderService : Service() {
 
     private fun stopRecording() {
         if (!recording) return
-        recording=false; timerHandler.removeCallbacks(timerTick)
+        recording=false; timerHandler.removeCallbacks(timerTick); val savedUri = outputUri
         try { recorder?.stop() } catch (_: Exception) { }
         releaseRecorder(deleteFile=false)
-        try { outputUri?.let { uri ->
+        try { savedUri?.let { uri ->
             val values=ContentValues().apply { if (Build.VERSION.SDK_INT >= 29) put(MediaStore.Video.Media.IS_PENDING,0) }
             contentResolver.update(uri,values,null,null)
         } } catch (_: Exception) { }
