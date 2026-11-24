@@ -8,10 +8,12 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.Gravity
 import android.view.View
 import android.widget.*
 import android.Manifest
@@ -86,7 +88,7 @@ class MainActivity : Activity() {
         }
         if (count == 0) list.addView(TextView(this).apply { text="Nenhum vídeo gravado ainda."; textSize=16f; setTextColor(Color.GRAY); setPadding(8,28,8,28) })
         list.addView(TextView(this).apply {
-            text = "ScreenLite build 3 · $count vídeo(s)" + (if (error != null) "\nErro: $error" else "")
+            text = "ScreenLite build 4 · $count vídeo(s)" + (if (error != null) "\nErro: $error" else "")
             textSize = 12f; setTextColor(Color.DKGRAY); setPadding(8,16,8,16)
         })
         scroll.addView(list); root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
@@ -100,7 +102,7 @@ class MainActivity : Activity() {
             Toast.makeText(this,"Permita a sobreposição e toque novamente.",Toast.LENGTH_LONG).show(); return
         }
         val audio = prefs.getString("audio", "Nenhuma") ?: "Nenhuma"
-        if ((audio == "Microfone" || audio == "Ambos") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (audio == "Sistema" && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 78); return
         }
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -127,7 +129,7 @@ class MainActivity : Activity() {
         addChoice("Resolução", "resolution", arrayOf("720p","1080p","1440p","Automática"), "Automática")
         addChoice("Fonte de áudio", "audio", arrayOf("Nenhuma","Microfone","Sistema","Ambos"), "Nenhuma")
         root.addView(TextView(this).apply {
-            text = "Nota: nesta primeira versão, a captura de áudio interno (Sistema/Ambos) ainda não está implementada; Microfone funciona.\nAs configurações são aplicadas à próxima gravação."
+            text = "Nota: por enquanto só "Sistema" e "Nenhuma" funcionam. Alguns jogos/apps podem bloquear a captura do áudio do sistema.\nAs configurações são aplicadas à próxima gravação."
             setTextColor(Color.LTGRAY); textSize = 13f; setPadding(4, 18, 4, 18)
         })
         root.addView(button("Voltar") { showHome() })

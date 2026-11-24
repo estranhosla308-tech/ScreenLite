@@ -28,7 +28,7 @@ class RecorderService : Service() {
     private lateinit var windowManager: WindowManager
     private var floating: View? = null
     private var projection: MediaProjection? = null
-    private var recorder: MediaRecorder? = null
+    private var session: SessionRecorder? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var outputUri: Uri? = null
     private var outputPfd: android.os.ParcelFileDescriptor? = null
@@ -54,11 +54,7 @@ class RecorderService : Service() {
             .setContentText("O controle flutuante está ativo")
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setOngoing(true).build()
-        val selectedAudio = getSharedPreferences("settings", MODE_PRIVATE).getString("audio", "Nenhuma") ?: "Nenhuma"
-        var serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        if (Build.VERSION.SDK_INT >= 34 && (selectedAudio == "Microfone" || selectedAudio == "Ambos")) {
-            serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        }
+        val serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, serviceTypes)
         else startForeground(NOTIFICATION_ID, notification)
         try {
@@ -110,15 +106,17 @@ class RecorderService : Service() {
     }
 
 
-    @Suppress("DEPRECATION")
-    private fun createRecorder(): MediaRecorder = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
-
     private fun startRecording() {
         if (recording) return
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val audio = prefs.getString("audio", "Nenhuma") ?: "Nenhuma"
-        if (audio == "Sistema" || audio == "Ambos") {
-            Toast.makeText(this, "Áudio interno ainda não está disponível nesta versão. Escolha Microfone ou Nenhuma.", Toast.LENGTH_LONG).show(); return
+        if (audio == "Microfone" || audio == "Ambos") {
+            Toast.makeText(this, "Microfone e Ambos ainda não estão disponíveis. Escolha Sistema ou Nenhuma.", Toast.LENGTH_LONG).show(); return
+        }
+        val useSys = audio == "Sistema"
+        val useMic = false
+        if (useSys && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Permita o acesso de áudio ao app e abra o flutuante de novo.", Toast.LENGTH_LONG).show(); return
         }
         try {
             val metrics = resources.displayMetrics
@@ -138,25 +136,14 @@ class RecorderService : Service() {
             outputUri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
                 ?: throw IllegalStateException("Não foi possível criar o arquivo de vídeo")
             outputPfd = contentResolver.openFileDescriptor(outputUri!!, "w") ?: throw IllegalStateException("Falha ao abrir arquivo")
-            recorder = createRecorder()
-            recorder!!.apply {
-                if (audio == "Microfone") setAudioSource(MediaRecorder.AudioSource.MIC)
-                setVideoSource(MediaRecorder.VideoSource.SURFACE)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                if (audio == "Microfone") setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-                setVideoSize(width.coerceAtLeast(2), height.coerceAtLeast(2))
-                setVideoFrameRate(fps)
-                setVideoEncodingBitRate(bitrate)
-                if (audio == "Microfone") setAudioEncodingBitRate(128_000)
-                setOutputFile(outputPfd!!.fileDescriptor)
-                prepare()
-            }
-            val surface = recorder!!.surface
+            val proj = projection ?: throw IllegalStateException("A sessão de captura expirou")
+            val rec = SessionRecorder(proj, outputPfd!!.fileDescriptor, width.coerceAtLeast(2), height.coerceAtLeast(2), fps, bitrate, useSys, useMic)
+            session = rec
+            rec.prepare()
             val density = metrics.densityDpi
-            virtualDisplay = projection?.createVirtualDisplay("ScreenLiteCapture", width, height, density, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null)
-                ?: throw IllegalStateException("A sessão de captura expirou")
-            recorder!!.start()
+            virtualDisplay = proj.createVirtualDisplay("ScreenLiteCapture", width.coerceAtLeast(2), height.coerceAtLeast(2), density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, rec.inputSurface, null, null)
+            rec.start()
             recording=true; startedAt=System.currentTimeMillis(); recordButton?.text="■"; recordButton?.setBackgroundColor(Color.rgb(230,75,35))
             timerHandler.post(timerTick)
         } catch (e: Exception) {
@@ -176,7 +163,6 @@ class RecorderService : Service() {
     private fun stopRecording() {
         if (!recording) return
         recording=false; timerHandler.removeCallbacks(timerTick); val savedUri = outputUri
-        try { recorder?.stop() } catch (_: Exception) { }
         releaseRecorder(deleteFile=false)
         try { savedUri?.let { uri ->
             val values=ContentValues().apply { if (Build.VERSION.SDK_INT >= 29) put(MediaStore.Video.Media.IS_PENDING,0) }
@@ -191,7 +177,7 @@ class RecorderService : Service() {
 
     private fun releaseRecorder(deleteFile: Boolean) {
         try { virtualDisplay?.release() } catch (_: Exception) { }; virtualDisplay=null
-        try { recorder?.reset(); recorder?.release() } catch (_: Exception) { }; recorder=null
+        try { session?.stop() } catch (_: Exception) { }; session=null
         try { outputPfd?.close() } catch (_: Exception) { }; outputPfd=null
         if (deleteFile) { try { outputUri?.let { contentResolver.delete(it,null,null) } } catch (_: Exception) { } }
         outputUri=null
@@ -213,7 +199,7 @@ class RecorderService : Service() {
 
     override fun onDestroy() {
         timerHandler.removeCallbacksAndMessages(null)
-        if (recording) { try { recorder?.stop() } catch (_: Exception) { }; recording=false }
+        recording=false
         releaseRecorder(deleteFile=false)
         try { projection?.stop() } catch (_: Exception) { }
         try { floating?.let { windowManager.removeView(it) } } catch (_: Exception) { }
