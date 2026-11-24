@@ -144,6 +144,7 @@ class RecorderService : Service() {
         bg.setColor(0xFF1C2C38.toInt()); bg.cornerRadius = dp(40).toFloat()
         pill?.background = bg
         recBtn?.recording = false
+        pill?.alpha = 0.95f
         timerView?.visibility = View.GONE
         folderBtn?.visibility = View.VISIBLE
         gearBtn?.visibility = View.VISIBLE
@@ -156,6 +157,7 @@ class RecorderService : Service() {
         bg.setStroke(dp(1), 0xFF4A4A4D.toInt())
         pill?.background = bg
         recBtn?.recording = true
+        pill?.alpha = 0.5f
         timerView?.text = "00:00"
         timerView?.visibility = View.VISIBLE
         folderBtn?.visibility = View.GONE
