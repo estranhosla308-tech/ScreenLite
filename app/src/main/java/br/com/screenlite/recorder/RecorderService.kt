@@ -2,6 +2,7 @@ package br.com.screenlite.recorder
 
 import android.app.*
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -36,7 +37,7 @@ class RecorderService : Service() {
     private var timer: TextView? = null
     private var recordButton: TextView? = null
 
-    override fun onBind(intent: Intent?) = null
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_PREPARE) prepareProjection(intent)
@@ -63,6 +64,12 @@ class RecorderService : Service() {
             if (data == null) { stopSelf(); return }
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, data)
+            // Android 14+ exige um callback registrado antes de criar o VirtualDisplay
+            projection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    if (projection != null) { projection = null; closeFloating() }
+                }
+            }, Handler(Looper.getMainLooper()))
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
             showFloating()
         } catch (e: Exception) {
@@ -175,7 +182,7 @@ class RecorderService : Service() {
         recordButton?.text="●"; recordButton?.setBackgroundColor(Color.rgb(220,35,45)); timer?.text="Salvo"
         Toast.makeText(this,"Gravação salva em Vídeos/ScreenLite",Toast.LENGTH_LONG).show()
         // Android 14+ requires a fresh consent token and a new virtual display for every session.
-        projection?.stop(); projection=null
+        val p = projection; projection = null; try { p?.stop() } catch (_: Exception) { }
         timerHandler.postDelayed({ closeFloating() }, 1400)
     }
 

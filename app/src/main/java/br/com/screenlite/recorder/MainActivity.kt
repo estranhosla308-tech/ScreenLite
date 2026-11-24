@@ -1,7 +1,7 @@
 package br.com.screenlite.recorder
 
 import android.app.Activity
-import android.app.MediaProjectionManager
+import android.media.projection.MediaProjectionManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -77,8 +77,8 @@ class MainActivity : Activity() {
             startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             Toast.makeText(this,"Permita a sobreposição e toque novamente.",Toast.LENGTH_LONG).show(); return
         }
-        val audio = prefs.getString("audio", "none") ?: "none"
-        if ((audio == "mic" || audio == "both") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        val audio = prefs.getString("audio", "Nenhuma") ?: "Nenhuma"
+        if ((audio == "Microfone" || audio == "Ambos") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 78); return
         }
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -104,8 +104,10 @@ class MainActivity : Activity() {
         addChoice("Taxa de quadros", "fps", arrayOf("24 fps","30 fps","48 fps","60 fps"), "30 fps")
         addChoice("Resolução", "resolution", arrayOf("720p","1080p","1440p","Automática"), "Automática")
         addChoice("Fonte de áudio", "audio", arrayOf("Nenhuma","Microfone","Sistema","Ambos"), "Nenhuma")
-        root.addView(TextView(this).apply { text="Nota: áudio interno depende do Android 10+ e da permissão do app/jogo de origem. Nesta primeira versão, a captura de áudio interno ainda não está implementada; Microfone funciona.
-\nAs configurações são aplicadas à próxima gravação."; setTextColor(Color.LTGRAY); textSize=13f; setPadding(4,18,4,18) })
+        root.addView(TextView(this).apply {
+            text = "Nota: nesta primeira versão, a captura de áudio interno (Sistema/Ambos) ainda não está implementada; Microfone funciona.\nAs configurações são aplicadas à próxima gravação."
+            setTextColor(Color.LTGRAY); textSize = 13f; setPadding(4, 18, 4, 18)
+        })
         root.addView(button("Voltar") { showHome() })
     }
 
@@ -124,7 +126,19 @@ class MainActivity : Activity() {
         wrap.addView(spinner); root.addView(wrap)
     }
 
-    override fun onNewIntent(intent: Intent?) { super.onNewIntent(intent); if (intent?.getBooleanExtra("openSettings", false) == true) showSettings() else if (intent != null) showHome() }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("openSettings", false)) showSettings() else showHome()
+    }
 
-    override fun onResume() { super.onResume(); if (!settingsPage && ::root.isInitialized && root.childCount == 0) showHome() }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 78 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) beginPermissionFlow()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!settingsPage && ::root.isInitialized) showHome()
+    }
 }
