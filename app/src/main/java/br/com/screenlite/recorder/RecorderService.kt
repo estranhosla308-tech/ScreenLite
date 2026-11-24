@@ -22,6 +22,7 @@ class RecorderService : Service() {
         const val ACTION_PREPARE = "br.com.screenlite.PREPARE"
         private const val CHANNEL = "screenlite_recording"
         private const val NOTIFICATION_ID = 901
+        @Volatile var isRecording = false
     }
 
     private lateinit var windowManager: WindowManager
@@ -31,7 +32,9 @@ class RecorderService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var outputUri: Uri? = null
     private var outputPfd: android.os.ParcelFileDescriptor? = null
-    private var recording = false
+    private var recording: Boolean
+        get() = isRecording
+        set(v) { isRecording = v }
     private var timerHandler = Handler(Looper.getMainLooper())
     private var startedAt = 0L
     private var timer: TextView? = null
