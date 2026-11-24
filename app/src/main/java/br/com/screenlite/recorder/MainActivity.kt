@@ -1,14 +1,15 @@
 package br.com.screenlite.recorder
 
 import android.app.Activity
-import android.media.projection.MediaProjectionManager
+import android.app.AlertDialog
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.media.MediaMetadataRetriever
+import android.graphics.drawable.GradientDrawable
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,12 +18,15 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import android.Manifest
+import java.util.Locale
 
 class MainActivity : Activity() {
     private val requestCapture = 410
     private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
     private lateinit var root: LinearLayout
     private var settingsPage = false
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +45,94 @@ class MainActivity : Activity() {
     private fun button(text: String, action: () -> Unit): Button = Button(this).apply {
         this.text = text; setTextColor(Color.WHITE); setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(38,38,38)))
         setOnClickListener { action() }
+    }
+
+    // ---------- lista de vídeos ----------
+
+    private fun fmtDur(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0)
+        val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+        return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, sec) else String.format(Locale.US, "%02d:%02d", m, sec)
+    }
+
+    private fun fmtSize(b: Long): String =
+        if (b >= 1024L * 1024L * 1024L) String.format(Locale.US, "%.2f GB", b / 1073741824.0)
+        else String.format(Locale.US, "%d MB", b / 1048576L)
+
+    private fun loadThumb(img: ImageView, uri: Uri) {
+        Thread {
+            try {
+                val bmp = contentResolver.loadThumbnail(uri, android.util.Size(dp(220), dp(180)), null)
+                runOnUiThread { if (!isDestroyed) img.setImageBitmap(bmp) }
+            } catch (_: Exception) { }
+        }.start()
+    }
+
+    private fun shareVideo(uri: Uri) {
+        val send = Intent(Intent.ACTION_SEND)
+        send.type = "video/mp4"
+        send.putExtra(Intent.EXTRA_STREAM, uri)
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Compartilhar vídeo"))
+    }
+
+    private fun confirmDelete(uri: Uri) {
+        AlertDialog.Builder(this)
+            .setTitle("Apagar vídeo?")
+            .setMessage("Essa gravação será removida do aparelho.")
+            .setPositiveButton("Apagar") { _, _ ->
+                try { contentResolver.delete(uri, null, null) } catch (e: Exception) {
+                    Toast.makeText(this, "Não foi possível apagar: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+                showHome()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun videoCard(uri: Uri, name: String, durMs: Long, size: Long, w: Int, h: Int): View {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        val bg = GradientDrawable()
+        bg.setColor(Color.rgb(34, 34, 34)); bg.cornerRadius = dp(12).toFloat()
+        row.background = bg
+        row.clipToOutline = true
+
+        val thumb = ImageView(this)
+        thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+        thumb.setBackgroundColor(Color.rgb(50, 50, 50))
+        row.addView(thumb, LinearLayout.LayoutParams(dp(110), dp(90)))
+        loadThumb(thumb, uri)
+
+        val info = TextView(this)
+        info.text = "$name\n${fmtDur(durMs)}  ·  ${w}x${h}\n${fmtSize(size)}"
+        info.textSize = 14f; info.setTextColor(Color.LTGRAY)
+        info.setPadding(dp(12), 0, dp(4), 0)
+        row.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val more = TextView(this)
+        more.text = "⋮"; more.textSize = 24f; more.setTextColor(Color.WHITE)
+        more.setPadding(dp(14), dp(10), dp(14), dp(10))
+        more.setOnClickListener { anchor ->
+            val menu = PopupMenu(this, anchor)
+            menu.menu.add("Compartilhar")
+            menu.menu.add("Apagar")
+            menu.setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "Compartilhar" -> shareVideo(uri)
+                    "Apagar" -> confirmDelete(uri)
+                }
+                true
+            }
+            menu.show()
+        }
+        row.addView(more)
+
+        row.setOnClickListener {
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        }
+        return row
     }
 
     private fun showHome() {
@@ -69,26 +161,17 @@ class MainActivity : Activity() {
                         try { contentResolver.update(itemUri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null) } catch (_: Exception) { }
                     }
                     count++
-                    val name = c.getString(1) ?: "Gravação"
-                    val duration = (c.getLong(2) / 1000).coerceAtLeast(0)
-                    val size = c.getLong(3) / (1024 * 1024)
-                    val w = c.getInt(4); val h = c.getInt(5)
-                    val card = TextView(this).apply {
-                        text = "$name\nDuração: ${duration/60}:${(duration%60).toString().padStart(2,'0')}\nResolução: ${w}x${h}\nTamanho: ${size} MB"
-                        textSize = 16f; setTextColor(Color.LTGRAY); setPadding(18,18,18,18); setBackgroundColor(Color.rgb(34,34,34))
-                    }
-                    val lp = LinearLayout.LayoutParams(-1,-2); lp.bottomMargin = 12; list.addView(card,lp)
-                    card.setOnClickListener {
-                        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(itemUri,"video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                    }
+                    val lp = LinearLayout.LayoutParams(-1, -2)
+                    lp.bottomMargin = dp(10)
+                    list.addView(videoCard(itemUri, c.getString(1) ?: "Gravação", c.getLong(2), c.getLong(3), c.getInt(4), c.getInt(5)), lp)
                 }
             }
         } catch (e: Exception) {
             error = e.toString()
         }
-        if (count == 0) list.addView(TextView(this).apply { text="Nenhum vídeo gravado ainda."; textSize=16f; setTextColor(Color.GRAY); setPadding(8,28,8,28) })
+        if (count == 0) list.addView(TextView(this).apply { text = "Nenhum vídeo gravado ainda."; textSize = 16f; setTextColor(Color.GRAY); setPadding(8,28,8,28) })
         list.addView(TextView(this).apply {
-            text = "ScreenLite build 4 · $count vídeo(s)" + (if (error != null) "\nErro: $error" else "")
+            text = "ScreenLite build 5 · $count vídeo(s)" + (if (error != null) "\nErro: $error" else "")
             textSize = 12f; setTextColor(Color.DKGRAY); setPadding(8,16,8,16)
         })
         scroll.addView(list); root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
@@ -96,13 +179,15 @@ class MainActivity : Activity() {
         root.addView(button("⚙  Configurações") { showSettings() })
     }
 
+    // ---------- permissões e captura ----------
+
     private fun beginPermissionFlow() {
         if (!android.provider.Settings.canDrawOverlays(this)) {
             startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             Toast.makeText(this,"Permita a sobreposição e toque novamente.",Toast.LENGTH_LONG).show(); return
         }
         val audio = prefs.getString("audio", "Nenhuma") ?: "Nenhuma"
-        if (audio == "Sistema" && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (audio != "Nenhuma" && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 78); return
         }
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -122,6 +207,8 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------- configurações ----------
+
     private fun showSettings() {
         settingsPage = true; base("Configurações")
         addChoice("Qualidade do vídeo", "quality", arrayOf("8 Mbps","12 Mbps","20 Mbps","30 Mbps","50 Mbps"), "20 Mbps")
@@ -129,7 +216,7 @@ class MainActivity : Activity() {
         addChoice("Resolução", "resolution", arrayOf("720p","1080p","1440p","Automática"), "Automática")
         addChoice("Fonte de áudio", "audio", arrayOf("Nenhuma","Microfone","Sistema","Ambos"), "Nenhuma")
         root.addView(TextView(this).apply {
-            text = "Nota: por enquanto só Sistema e Nenhuma funcionam. Alguns jogos/apps podem bloquear a captura do áudio do sistema.\nAs configurações são aplicadas à próxima gravação."
+            text = "Nota: Sistema grava o som do jogo, Microfone grava a sua voz e Ambos mistura os dois. Alguns jogos/apps podem bloquear a captura do áudio do sistema.\nAs configurações são aplicadas à próxima gravação."
             setTextColor(Color.LTGRAY); textSize = 13f; setPadding(4, 18, 4, 18)
         })
         root.addView(button("Voltar") { showHome() })
